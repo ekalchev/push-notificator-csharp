@@ -92,15 +92,15 @@ namespace Firebase.Cloud.Messaging
 
                 memoryStream.Write(preabmleBuffer, 0, preabmleBuffer.Length);
                 loginRequest.WriteDelimitedTo(memoryStream);
-                await connection.SendAsync(memoryStream.ToArray(), cts.Token);
+                await connection.SendAsync(memoryStream.ToArray(), cts.Token).ConfigureAwait(false);
             }
         }
 
-        public Task ListenAsync()
+        public async Task ListenAsync()
         {
             CheckDisposed();
 
-            return connection.ReceiveAsync(cts.Token);
+            await connection.ReceiveAsync(cts.Token).ConfigureAwait(false);
         }
 
         private void Connection_DataReceived(object sender, DataReceivedEventArgs dataReceivedEventArgs)
@@ -255,10 +255,6 @@ namespace Firebase.Cloud.Messaging
                     Debug.WriteLine("GCM Handshake complete.");
                 }
             }
-            else if(messageTag == MessageTag.kCloseTag)
-            {
-
-            }
 
             if (message != null)
             {
@@ -281,6 +277,7 @@ namespace Firebase.Cloud.Messaging
 
             // release the memory for read bytes
             long unreadBytesCount = dataStream.UnreadBytesCount();
+            
             if (unreadBytesCount > 0)
             {
                 byte[] unreadBytes = new byte[unreadBytesCount];
