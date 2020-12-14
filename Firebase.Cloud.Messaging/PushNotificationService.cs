@@ -45,13 +45,33 @@ namespace Firebase.Cloud.Messaging
             return fcmRegistration.Token;
         }
 
-        public async Task Run()
+        public async Task Run(CancellationToken cancellationToken)
         {
-            FcmListener fcmListener = new FcmListener();
-            fcmListener.MessageReceived += FcmListener_MessageReceived;
-            fcmListener.Login(gcmRegistration.AndroidId, gcmRegistration.SecurityToken);
-            await fcmListener.ListenAsync();
-            fcmListener.Dispose();
+            
+
+            while (cancellationToken.IsCancellationRequested == false)
+            {
+                using (FcmListener fcmListener = new FcmListener())
+                {
+
+                    try
+                    {
+                        fcmListener.MessageReceived += FcmListener_MessageReceived;
+
+                        await fcmListener.ConnectAsync();
+                        await fcmListener.LoginAsync(gcmRegistration.AndroidId, gcmRegistration.SecurityToken);
+                        await fcmListener.ListenAsync();
+                    }
+                    catch(FcmListenerException ex)
+                    {
+                        Debug.WriteLine(ex.Message);
+                    }
+                    finally
+                    {
+                        fcmListener.MessageReceived -= FcmListener_MessageReceived;
+                    }
+                }
+            }
         }
 
         private void FcmListener_MessageReceived(object sender, IMessage message)

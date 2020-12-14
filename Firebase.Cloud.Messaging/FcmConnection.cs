@@ -8,6 +8,7 @@ using System.Runtime.InteropServices;
 using System.Security.Authentication;
 using System.Security.Cryptography.X509Certificates;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace Firebase.Cloud.Messaging
@@ -19,30 +20,60 @@ namespace Firebase.Cloud.Messaging
         private TcpClient client;
         private SslStream sslStream;
         private byte[] buffer = new byte[2048];
+        private CancellationTokenSource cts = new CancellationTokenSource();
 
         public event EventHandler<DataReceivedEventArgs> DataReceived;
 
-        public void ConnectAndLogin(byte[] loginData)
+        public async Task ConnectAsync()
         {
             client = new TcpClient(host, port);
             SetKeepAlive(client.Client, 60 * 1000, 60 * 1000); //TODO: test keep alive
 
             sslStream = new SslStream(client.GetStream(), false, new RemoteCertificateValidationCallback(ValidateServerCertificate), null);
-            sslStream.AuthenticateAsClient(host, null, SslProtocols.Tls, false);
-
-            sslStream.Write(loginData, 0, loginData.Length);
+            await sslStream.AuthenticateAsClientAsync(host, null, SslProtocols.Tls, false).ConfigureAwait(false);
         }
 
-        public async Task ReceiveAsync()
+        public async Task SendAsync(byte[] data, CancellationToken cancellationToken)
         {
-            while(client.Connected)
-            {
-                int bytesRead = await sslStream.ReadAsync(buffer, 0, buffer.Length);
+            CancellationToken linkedToken = CreateLinkedToken(cancellationToken);
 
-                if(bytesRead > 0 && DataReceived != null)
+            await sslStream.WriteAsync(data, 0, data.Length, linkedToken).ConfigureAwait(false);
+        }
+
+        private CancellationToken CreateLinkedToken(CancellationToken cancellationToken)
+        {
+            return CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, cts.Token).Token;
+        }
+
+        public async Task ReceiveAsync(CancellationToken cancellationToken)
+        {
+            CancellationToken linkedToken = CreateLinkedToken(cancellationToken);
+
+            try
+            {
+                while (linkedToken.IsCancellationRequested == false)
                 {
-                    DataReceived.Invoke(this, new DataReceivedEventArgs(buffer, bytesRead));
+                    int bytesRead = await sslStream.ReadAsync(buffer, 0, buffer.Length, linkedToken).ConfigureAwait(false);
+
+                    if (bytesRead > 0 && DataReceived != null)
+                    {
+                        DataReceived.Invoke(this, new DataReceivedEventArgs(buffer, bytesRead));
+                    }
+
+                    // it seems that if the underlying socket is disconnected no exception is thrown
+                    if (client.Connected == false)
+                    {
+                        throw new SocketException(1);
+                    }
                 }
+            }
+            catch(SocketException)
+            {
+                
+            }
+            catch(OperationCanceledException)
+            {
+
             }
         }
 
@@ -89,6 +120,8 @@ namespace Firebase.Cloud.Messaging
             {
                 if (disposing)
                 {
+                    cts.Cancel();
+                    cts.Dispose();
                     sslStream?.Dispose();
                     client?.Dispose();
                 }

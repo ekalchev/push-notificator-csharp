@@ -9,11 +9,13 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
+using System.Threading;
 
 namespace Firebase.Cloud.Messaging
 {
     public class FcmListener : IDisposable
     {
+        private readonly CancellationTokenSource cts = new CancellationTokenSource();
         // Max # of bytes a length packet consumes. A Varint32 can consume up to 5 bytes
         // (the msb in each byte is reserved for denoting whether more bytes follow).
         // Although the protocol only allows for 4KiB payloads currently, and the socket
@@ -28,13 +30,16 @@ namespace Firebase.Cloud.Messaging
         // The current MCS protocol version.
         private const int kMCSVersion = 41;
 
-        private FcmConnection connection;
+        private FcmConnection connection = new FcmConnection();
         private ProcessingState state;
         private MessageTag messageTag;
         private bool handShakeComplete;
         private long sizePacketSoFar;
         private uint messageSize;
-        private MemoryStream dataStream;
+        private MemoryStream dataStream = new MemoryStream();
+
+        private LoginRequest loginRequest;
+        private LoginResponse loginResponse;
 
         private enum ProcessingState
         {
@@ -67,16 +72,19 @@ namespace Firebase.Cloud.Messaging
 
         public event EventHandler<IMessage> MessageReceived;
 
-
-        public void Login(ulong androidId, ulong securityToken)
+        public async Task ConnectAsync()
         {
-            Close();
+            CheckDisposed();
 
-            dataStream = new MemoryStream();
-            connection = new FcmConnection();
             connection.DataReceived += Connection_DataReceived;
+            await connection.ConnectAsync();
+        }
 
-            var loginRequest = CreateLoginRequest(androidId, securityToken, Enumerable.Empty<string>());
+        public async Task LoginAsync(ulong androidId, ulong securityToken)
+        {
+            CheckDisposed();
+
+            loginRequest = CreateLoginRequest(androidId, securityToken, Enumerable.Empty<string>());
 
             using (var memoryStream = new MemoryStream())
             {
@@ -84,13 +92,15 @@ namespace Firebase.Cloud.Messaging
 
                 memoryStream.Write(preabmleBuffer, 0, preabmleBuffer.Length);
                 loginRequest.WriteDelimitedTo(memoryStream);
-                connection.ConnectAndLogin(memoryStream.ToArray());
+                await connection.SendAsync(memoryStream.ToArray(), cts.Token);
             }
         }
 
         public Task ListenAsync()
         {
-            return connection.ReceiveAsync();
+            CheckDisposed();
+
+            return connection.ReceiveAsync(cts.Token);
         }
 
         private void Connection_DataReceived(object sender, DataReceivedEventArgs dataReceivedEventArgs)
@@ -168,7 +178,16 @@ namespace Firebase.Cloud.Messaging
         private void OnGotMessageTag(Stream stream)
         {
             messageTag = (MessageTag)stream.ReadByte();
+
             Debug.WriteLine($"Received proto of type {messageTag}");
+
+            if (messageTag == MessageTag.kCloseTag)
+            {
+                connection.Dispose();
+                connection = null;
+
+                throw new FcmListenerException("Close tag sent from FCM");
+            }
 
             OnGotMessageSize(stream);
         }
@@ -224,6 +243,8 @@ namespace Firebase.Cloud.Messaging
 
             if (messageTag == MessageTag.kLoginResponseTag)
             {
+                loginResponse = (LoginResponse)message;
+
                 if (handShakeComplete == true)
                 {
                     Debug.WriteLine("Unexpected login response");
@@ -233,6 +254,10 @@ namespace Firebase.Cloud.Messaging
                     handShakeComplete = true;
                     Debug.WriteLine("GCM Handshake complete.");
                 }
+            }
+            else if(messageTag == MessageTag.kCloseTag)
+            {
+
             }
 
             if (message != null)
@@ -281,7 +306,7 @@ namespace Firebase.Cloud.Messaging
                 AuthToken = gcmSecurityToken.ToString(),
                 Id = "chrome-63.0.3234.0",
                 Domain = "mcs.android.com",
-                DeviceId = $"android-{androidId.ToString("X")}",
+                DeviceId = $"android-{androidId.ToString("x")}",
                 NetworkType = 1,
                 Resource = androidId.ToString(),
                 User = androidId.ToString(),
@@ -323,22 +348,41 @@ namespace Firebase.Cloud.Messaging
             }
         }
 
-        private void Close()
+        private void CheckDisposed()
         {
-            dataStream?.Dispose();
-            dataStream = null;
+            if (disposedValue == true) throw new ObjectDisposedException(this.GetType().Name);
+        }
 
-            if (connection != null)
+        private bool disposedValue = false; // To detect redundant calls
+
+        protected virtual void Dispose(bool disposing)
+        {
+            if (!disposedValue)
             {
-                connection.DataReceived -= Connection_DataReceived;
-                connection.Dispose();
-                connection = null;
+                if (disposing)
+                {
+                    cts.Cancel();
+                    cts.Dispose();
+
+                    dataStream.Dispose();
+
+                    state = ProcessingState.MCS_VERSION_TAG_AND_SIZE;
+
+                    if (connection != null)
+                    {
+                        connection.DataReceived -= Connection_DataReceived;
+                        connection.Dispose();
+                        connection = null;
+                    }
+                }
+
+                disposedValue = true;
             }
         }
 
         public void Dispose()
         {
-            Close();
+            Dispose(true);
         }
     }
 }

@@ -9,6 +9,7 @@ using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace Firebase.Cloud.Messaging.UnitTests
@@ -24,19 +25,21 @@ namespace Firebase.Cloud.Messaging.UnitTests
             string serverKey = "AAAAgEVyvhc:APA91bEHA0m7aafyv6swqqKJJlTXPkFfuRhvQWfN_TE87gAwz2tAJkMdoVeFpfrRi6bLIYHeF73yNCi_lEnNKDbuUiDnaW8S4qz39lP0VP2XSWZQK9JKJq7HVy6xt6Rp9cbBGs96wXXF";
             var token = await service.Register(serverKey);
 
-            string receivedMessage = null;
+            TaskCompletionSource<string> tcs = new TaskCompletionSource<string>();
 
             service.MessageReceived += (s, msg) => 
             {
-                receivedMessage = msg;
+                tcs.TrySetResult(msg);
             };
 
-            var serviceRunTask = service.Run();
+            var serviceRunTask = service.Run(default);
+            //await SendMessageAsync(token);
 
-            await Task.WhenAll(Task.Delay(5000), SendMessageAsync(token));
+            await Task.WhenAll(Task.Delay(5000), tcs.Task);
 
-            var jObject = JObject.Parse(receivedMessage);
+            var jObject = JObject.Parse(tcs.Task.GetAwaiter().GetResult());
 
+            Thread.Sleep(1000000000);
             //Assert.AreEqual()
         }
 
