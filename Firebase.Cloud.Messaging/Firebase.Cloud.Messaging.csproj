@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>netstandard2.0</TargetFramework>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Remove="Gcm\checkin.proto" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Google.Protobuf" Version="3.14.0" />
+    <PackageReference Include="Grpc.Tools" Version="2.34.0">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers</IncludeAssets>
+    </PackageReference>
+    <PackageReference Include="Newtonsoft.Json" Version="12.0.3" />
+    <PackageReference Include="Portable.BouncyCastle" Version="1.8.8" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Protobuf Include="Gcm\checkin.proto" ProtoRoot="Gcm\" OutputDir="%(RelativeDir)" CompileOutputs="false" GrpcServices="Client" />
+    <Protobuf Include="Gcm\android_checkin.proto" ProtoRoot="Gcm\" OutputDir="%(RelativeDir)" CompileOutputs="false" GrpcServices="Client" />
+    <Protobuf Include="mcs.proto" OutputDir="%(RelativeDir)" CompileOutputs="false" GrpcServices="Client" />
+  </ItemGroup>
+
+</Project>
