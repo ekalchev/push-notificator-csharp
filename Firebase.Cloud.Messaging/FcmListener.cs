@@ -42,35 +42,6 @@ namespace Firebase.Cloud.Messaging
         private LoginRequest loginRequest;
         private LoginResponse loginResponse;
 
-        private enum ProcessingState
-        {
-            MCS_VERSION_TAG_AND_SIZE,
-            MCS_TAG_AND_SIZE,
-            MCS_SIZE,
-            MCS_PROTO_BYTES
-        }
-
-        private enum MessageTag
-        {
-            kHeartbeatPingTag = 0,
-            kHeartbeatAckTag = 1,
-            kLoginRequestTag = 2,
-            kLoginResponseTag = 3,
-            kCloseTag = 4,
-            kMessageStanzaTag = 5,
-            kPresenceStanzaTag = 6,
-            kIqStanzaTag = 7,
-            kDataMessageStanzaTag = 8,
-            kBatchPresenceStanzaTag = 9,
-            kStreamErrorStanzaTag = 10,
-            kHttpRequestTag = 11,
-            kHttpResponseTag = 12,
-            kBindAccountRequestTag = 13,
-            kBindAccountResponseTag = 14,
-            kTalkMetadataTag = 15,
-            kNumProtoTypes = 16,
-        }
-
         public event EventHandler<IMessage> MessageReceived;
 
         public async Task ConnectAsync()
