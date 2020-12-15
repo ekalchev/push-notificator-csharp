@@ -13,7 +13,7 @@ using System.Threading.Tasks;
 
 namespace Firebase.Cloud.Messaging
 {
-    class FcmConnection : IDisposable
+    class FcmConnection : IFcmConnection
     {
         private const string host = "mtalk.google.com";
         private const int port = 5228;
@@ -38,6 +38,11 @@ namespace Firebase.Cloud.Messaging
             CancellationToken linkedToken = CreateLinkedToken(cancellationToken);
 
             await sslStream.WriteAsync(data, 0, data.Length, linkedToken).ConfigureAwait(false);
+        }
+
+        public void Send(byte[] data)
+        {
+            sslStream.Write(data, 0, data.Length);
         }
 
         private CancellationToken CreateLinkedToken(CancellationToken cancellationToken)
@@ -133,5 +138,14 @@ namespace Firebase.Cloud.Messaging
         {
             Dispose(true);
         }
+    }
+
+    interface IFcmConnection : IDisposable
+    {
+        event EventHandler<DataReceivedEventArgs> DataReceived;
+        Task SendAsync(byte[] data, CancellationToken cancellationToken);
+        void Send(byte[] data);
+        Task ConnectAsync();
+        Task ReceiveAsync(CancellationToken cancellationToken);
     }
 }

@@ -47,8 +47,6 @@ namespace Firebase.Cloud.Messaging
 
         public async Task Run(CancellationToken cancellationToken)
         {
-            
-
             while (cancellationToken.IsCancellationRequested == false)
             {
                 using (FcmListener fcmListener = new FcmListener())
@@ -63,6 +61,10 @@ namespace Firebase.Cloud.Messaging
                         await fcmListener.ListenAsync();
                     }
                     catch(FcmListenerException ex)
+                    {
+                        Debug.WriteLine(ex.Message);
+                    }
+                    catch(IOException ex)
                     {
                         Debug.WriteLine(ex.Message);
                     }

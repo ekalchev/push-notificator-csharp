@@ -26,11 +26,12 @@ namespace Firebase.Cloud.Messaging
         private const int kSizePacketLenMax = 5;
         private const int kTagPacketLen = 1;
         private const int kVersionPacketLen = 1;
-
+        private const string kHeartbeatIntervalSettingName = "hbping";
+        private const string kLoginSettingDefaultName = "new_vc";
         // The current MCS protocol version.
         private const int kMCSVersion = 41;
 
-        private FcmConnection connection = new FcmConnection();
+        private IFcmConnection connection = new FcmConnection();
         private ProcessingState state;
         private MessageTag messageTag;
         private bool handShakeComplete;
@@ -88,11 +89,11 @@ namespace Firebase.Cloud.Messaging
 
             using (var memoryStream = new MemoryStream())
             {
-                var preabmleBuffer = new byte[] { kMCSVersion, (int)MessageTag.kLoginRequestTag };
+                memoryStream.WriteByte(kMCSVersion);
 
-                memoryStream.Write(preabmleBuffer, 0, preabmleBuffer.Length);
-                loginRequest.WriteDelimitedTo(memoryStream);
-                await connection.SendAsync(memoryStream.ToArray(), cts.Token).ConfigureAwait(false);
+                byte[] buffer = CreateBufferForSend(memoryStream, MessageTag.kLoginRequestTag, loginRequest);
+
+                await connection.SendAsync(buffer, cts.Token).ConfigureAwait(false);
             }
         }
 
@@ -181,15 +182,23 @@ namespace Firebase.Cloud.Messaging
 
             Debug.WriteLine($"Received proto of type {messageTag}");
 
-            if (messageTag == MessageTag.kCloseTag)
-            {
-                connection.Dispose();
-                connection = null;
-
-                throw new FcmListenerException("Close tag sent from FCM");
-            }
-
             OnGotMessageSize(stream);
+        }
+
+        private byte[] CreateBufferForSend(MessageTag messageTag, IMessage message)
+        {
+            using (var memoryStream = new MemoryStream())
+            {
+                return CreateBufferForSend(memoryStream, messageTag, message);
+            }
+        }
+
+        private byte[] CreateBufferForSend(MemoryStream stream, MessageTag messageTag, IMessage message)
+        {
+            byte[] preabmleBuffer = new byte[] { (byte)messageTag };
+            stream.Write(preabmleBuffer, 0, preabmleBuffer.Length);
+            message.WriteDelimitedTo(stream);
+            return stream.ToArray();
         }
 
         private void OnGotMessageSize(Stream stream)
@@ -200,54 +209,54 @@ namespace Firebase.Cloud.Messaging
             long prevPosition = stream.Position;
             bool hasError = false;
 
-            messageSize = CodedInputStreamInternals.ReadRawVarint32(stream);
-
-            if (messageSize == 0)
+            try
             {
+                messageSize = CodedInputStreamInternals.ReadRawVarint32(stream);
+            }
+            catch(InvalidOperationException)
+            {
+                // TODO: this is not tested!!!!!
+
                 if (prevByteCount >= kSizePacketLenMax)
                 {
                     Debug.WriteLine("Error: Already had enough bytes, something else went wrong");
                     hasError = true;
+                    throw new FcmListenerException("Received unexpected data");
                 }
                 else
                 {
-                    // TODO: this is not tested!!!!!
+                    
                     sizePacketSoFar = prevByteCount - stream.UnreadBytesCount();
-                    stream.Position = prevPosition;
                     state = ProcessingState.MCS_SIZE;
                     incompleteSizePacket = true;
                 }
             }
 
+            stream.Position = prevPosition;
+            
             if (hasError == false && incompleteSizePacket == false)
             {
                 Debug.WriteLine($"Proto size:{messageSize}");
                 sizePacketSoFar = 0;
 
-                if (messageSize > 0)
-                {
-                    state = ProcessingState.MCS_PROTO_BYTES;
-                    ProcessData(stream);
-                }
-                else
-                {
-                    OnGotMessageBytes(stream);
-                }
+                OnGotMessageBytes(stream);
             }
         }
 
-        private void OnGotMessageBytes(Stream stream)
+        private void OnLoginResponseTag(LoginResponse loginResponse)
         {
-            IMessage message = BuildProtobufOfTag(messageTag);
-            message.MergeFrom(stream);
+            this.loginResponse = loginResponse;
 
-            if (messageTag == MessageTag.kLoginResponseTag)
+            if (handShakeComplete == true)
             {
-                loginResponse = (LoginResponse)message;
-
-                if (handShakeComplete == true)
+                Debug.WriteLine("Unexpected login response");
+                throw new FcmListenerException("Unexpected login response");
+            }
+            else
+            {
+                if (loginResponse.Error != null)
                 {
-                    Debug.WriteLine("Unexpected login response");
+                    Debug.WriteLine(string.Format("GCM Handshake complete failed. ErrorCode: {0}, Description: {1} ", loginResponse.Error.Code, loginResponse.Error.Message));
                 }
                 else
                 {
@@ -255,14 +264,49 @@ namespace Firebase.Cloud.Messaging
                     Debug.WriteLine("GCM Handshake complete.");
                 }
             }
+        }
 
-            if (message != null)
+        private void OnHeartBeatPingTag(HeartbeatPing heartbeatPing)
+        {
+            HeartbeatAck message = (HeartbeatAck)BuildProtobufOfTag(MessageTag.kHeartbeatAckTag);
+            connection.Send(CreateBufferForSend(MessageTag.kHeartbeatAckTag, message));
+        }
+
+        private void OnCloseTag(Close close)
+        {
+            connection.Dispose();
+            connection = null;
+
+            throw new IOException("Connection was closed by the server");
+        }
+
+        private void OnIqStanzaTag(IqStanza iqStanza)
+        {
+        }
+
+        private void OnGotMessageBytes(Stream stream)
+        {
+            IMessage message = BuildProtobufOfTag(messageTag);
+            message.MergeDelimitedFrom(stream);
+
+            switch(messageTag)
             {
-                MessageReceived?.Invoke(this, message);
-            }
-            else
-            {
-                Debug.WriteLine("Unknown message tag");
+                case MessageTag.kLoginResponseTag:
+                    OnLoginResponseTag((LoginResponse)message);
+                    break;
+                case MessageTag.kHeartbeatPingTag:
+                    OnHeartBeatPingTag((HeartbeatPing)message);
+                    break;
+                case MessageTag.kCloseTag:
+                    OnCloseTag((Close)message);
+                    break;
+                case MessageTag.kIqStanzaTag:
+                    OnIqStanzaTag((IqStanza)message);
+                    break;
+                case MessageTag.kDataMessageStanzaTag:
+                default:
+                    MessageReceived?.Invoke(this, message);
+                    break;
             }
 
             GetNextMessage();
@@ -277,7 +321,7 @@ namespace Firebase.Cloud.Messaging
 
             // release the memory for read bytes
             long unreadBytesCount = dataStream.UnreadBytesCount();
-            
+
             if (unreadBytesCount > 0)
             {
                 byte[] unreadBytes = new byte[unreadBytesCount];
@@ -310,7 +354,11 @@ namespace Firebase.Cloud.Messaging
                 UseRmq2 = true,
             };
 
-            loginRequest.Setting.Add(new Setting() { Name = "new_vc", Value = "1" });
+            loginRequest.Setting.Add(new Setting() { Name = kLoginSettingDefaultName, Value = "1" });
+
+#if DEBUG
+            loginRequest.Setting.Add(new Setting() { Name = kHeartbeatIntervalSettingName, Value = "100" });
+#endif
 
             foreach (var persistentid in receivedPersistentIds)
             {
@@ -351,6 +399,16 @@ namespace Firebase.Cloud.Messaging
         }
 
         private bool disposedValue = false; // To detect redundant calls
+
+        public FcmListener()
+        {
+            connection = new FcmConnection();
+        }
+
+        internal FcmListener(IFcmConnection connection)
+        {
+            this.connection = connection;
+        }
 
         protected virtual void Dispose(bool disposing)
         {
