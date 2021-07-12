@@ -184,7 +184,7 @@ namespace Firebase.Cloud.Messaging
             {
                 messageSize = CodedInputStreamInternals.ReadRawVarint32(stream);
             }
-            catch(InvalidOperationException)
+            catch (InvalidOperationException)
             {
                 // TODO: this is not tested!!!!!
 
@@ -196,7 +196,7 @@ namespace Firebase.Cloud.Messaging
                 }
                 else
                 {
-                    
+
                     sizePacketSoFar = prevByteCount - stream.UnreadBytesCount();
                     state = ProcessingState.MCS_SIZE;
                     incompleteSizePacket = true;
@@ -204,7 +204,7 @@ namespace Firebase.Cloud.Messaging
             }
 
             stream.Position = prevPosition;
-            
+
             if (hasError == false && incompleteSizePacket == false)
             {
                 Debug.WriteLine($"Proto size:{messageSize}");
@@ -258,26 +258,44 @@ namespace Firebase.Cloud.Messaging
         private void OnGotMessageBytes(Stream stream)
         {
             IMessage message = BuildProtobufOfTag(messageTag);
-            message.MergeDelimitedFrom(stream);
 
-            switch(messageTag)
+            if (message is object)
             {
-                case MessageTag.kLoginResponseTag:
-                    OnLoginResponseTag((LoginResponse)message);
-                    break;
-                case MessageTag.kHeartbeatPingTag:
-                    OnHeartBeatPingTag((HeartbeatPing)message);
-                    break;
-                case MessageTag.kCloseTag:
-                    OnCloseTag((Close)message);
-                    break;
-                case MessageTag.kIqStanzaTag:
-                    OnIqStanzaTag((IqStanza)message);
-                    break;
-                case MessageTag.kDataMessageStanzaTag:
-                default:
-                    MessageReceived?.Invoke(this, message);
-                    break;
+                if (messageTag == MessageTag.kDataMessageStanzaTag)
+                {
+                    stream.Position = 0;
+                    if (messageSize > stream.UnreadBytesCount())
+                    {
+                        return;
+                    }
+                    var buff = new byte[messageSize];
+                    stream.Read(buff, 0, (int)messageSize);
+                    message.MergeFrom(buff);
+                }
+                else
+                {
+                    message.MergeDelimitedFrom(stream);
+                }
+
+                switch (messageTag)
+                {
+                    case MessageTag.kLoginResponseTag:
+                        OnLoginResponseTag((LoginResponse)message);
+                        break;
+                    case MessageTag.kHeartbeatPingTag:
+                        OnHeartBeatPingTag((HeartbeatPing)message);
+                        break;
+                    case MessageTag.kCloseTag:
+                        OnCloseTag((Close)message);
+                        break;
+                    case MessageTag.kIqStanzaTag:
+                        OnIqStanzaTag((IqStanza)message);
+                        break;
+                    case MessageTag.kDataMessageStanzaTag:
+                    default:
+                        MessageReceived?.Invoke(this, message);
+                        break;
+                }
             }
 
             GetNextMessage();
@@ -298,8 +316,7 @@ namespace Firebase.Cloud.Messaging
                 byte[] unreadBytes = new byte[unreadBytesCount];
 
                 dataStream.Read(unreadBytes, 0, unreadBytes.Length);
-                dataStream = new MemoryStream(unreadBytes.Length);
-                dataStream.Write(unreadBytes, 0, unreadBytes.Length);
+                dataStream = new MemoryStream(unreadBytes);
             }
             else
             {

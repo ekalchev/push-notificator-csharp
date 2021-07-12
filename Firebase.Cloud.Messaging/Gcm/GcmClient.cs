@@ -67,7 +67,7 @@ namespace Firebase.Cloud.Messaging.Gcm
             var checkinData = await CheckIn(0, 0).ConfigureAwait(false);
             string token = await MakeRegisterRequest(checkinData, appId).ConfigureAwait(false);
 
-            return new GcmRegistration(token, checkinData.AndroidId, checkinData.SecurityToken);
+            return new GcmRegistration(token, checkinData.AndroidId, checkinData.SecurityToken, appId);
         }
 
         private async Task<string> MakeRegisterRequest(CheckinData checkinData, string appId)

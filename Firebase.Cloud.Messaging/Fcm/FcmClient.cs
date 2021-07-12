@@ -25,7 +25,7 @@ namespace Firebase.Cloud.Messaging.Fcm
         private const string subscribeUrl = "https://fcm.googleapis.com/fcm/connect/subscribe";
         private const string sendUrl = "https://fcm.googleapis.com/fcm/send";
 
-        public async Task<FcmRegistration> Register(string senderId, string token, byte[] publicKey, byte[] authSecret)
+        public async Task<FcmRegistration> Register(ulong senderId, string token, byte[] publicKey, byte[] authSecret)
         {
             byte[] randomBytes = new byte[16]; ;
             using (RNGCryptoServiceProvider rng = new RNGCryptoServiceProvider())
@@ -34,7 +34,7 @@ namespace Firebase.Cloud.Messaging.Fcm
             }
 
             Dictionary<string, string> postData = new Dictionary<string, string>();
-            postData.Add("authorized_entity", senderId);
+            postData.Add("authorized_entity", senderId.ToString());
             postData.Add("endpoint", $"{sendUrl}/{token}");
             postData.Add("encryption_key", UrlSafeBase64Convertor.ToBase64(publicKey));
             postData.Add("encryption_auth", UrlSafeBase64Convertor.ToBase64(authSecret));
