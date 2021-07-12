@@ -29,12 +29,12 @@ namespace Firebase.Cloud.Messaging
     {
         private ECPrivateKeyParameters privateKey;
         private ECPublicKeyParameters publicKey;
-        private ECDomainParameters ecDomainParameters;
-        private ECKeyGenerationParameters eckgparameters;
-        private ECCurve ecCurve;
-        private ECDomainParameters ecSpec;
-        private readonly X9ECParameters ecParams = NistNamedCurves.GetByName("P-256");
-        private readonly SecureRandom secureRandom = new SecureRandom();
+        private static ECDomainParameters ecDomainParameters;
+        private static ECKeyGenerationParameters eckgparameters;
+        private static ECCurve ecCurve;
+        private static ECDomainParameters ecSpec;
+        private static readonly X9ECParameters ecParams = NistNamedCurves.GetByName("P-256");
+        private static readonly SecureRandom secureRandom = new SecureRandom();
 
         // CEK_INFO = "Content-Encoding: aesgcm" || 0x00
         private static readonly byte[] keyInfoParameter = Encoding.ASCII.GetBytes("Content-Encoding: aesgcm\0");
@@ -54,10 +54,17 @@ namespace Firebase.Cloud.Messaging
         private const int CHUNK_SIZE = HEADER_RS + TAG_LENGTH;
         private const int PADSIZE = 2;
 
+        static Decryptor()
+        {
+            ecCurve = ecParams.Curve;
+            ecSpec = new ECDomainParameters(ecCurve, ecParams.G, ecParams.N, ecParams.H, ecParams.GetSeed());
+
+            eckgparameters = new ECKeyGenerationParameters(ecSpec, secureRandom);
+            ecDomainParameters = eckgparameters.DomainParameters;
+        }
+
         public Decryptor()
         {
-            CreateEC();
-
             (privateKey, publicKey) = GenerateKeys();
             PublicKey = publicKey.Q.GetEncoded();
 
@@ -65,25 +72,14 @@ namespace Firebase.Cloud.Messaging
             secureRandom.NextBytes(AuthSecret);
         }
 
-        internal Decryptor(byte[] privateKeyBytes, byte[] publicKeyBytes, byte[] authSecret)
+        internal Decryptor(CryptoSettings cryptoSettings)
         {
-            CreateEC();
-
-            ECPoint pt = ecCurve.DecodePoint(publicKeyBytes);
+            ECPoint pt = ecCurve.DecodePoint(cryptoSettings.PublicKey);
             publicKey = new ECPublicKeyParameters(pt, ecDomainParameters);
-            privateKey = new ECPrivateKeyParameters(new BigInteger(1, privateKeyBytes), ecDomainParameters);
+            privateKey = new ECPrivateKeyParameters(new BigInteger(1, cryptoSettings.PrivateKey), ecDomainParameters);
 
-            AuthSecret = authSecret;
+            AuthSecret = cryptoSettings.AuthSecret;
             PublicKey = publicKey.Q.GetEncoded();
-        }
-
-        private void CreateEC()
-        {
-            ecCurve = ecParams.Curve;
-            ecSpec = new ECDomainParameters(ecCurve, ecParams.G, ecParams.N, ecParams.H, ecParams.GetSeed());
-
-            eckgparameters = new ECKeyGenerationParameters(ecSpec, secureRandom);
-            ecDomainParameters = eckgparameters.DomainParameters;
         }
 
         public byte[] AuthSecret { get; }
@@ -186,15 +182,11 @@ namespace Firebase.Cloud.Messaging
 
             GcmBlockCipher blockCipher = new GcmBlockCipher(new AesEngine());
 
-            byte[] tag = ByteArray.Slice(buffer, buffer.Length - TAG_LENGTH, buffer.Length);
-            byte[] encryptedData = ByteArray.Slice(buffer, 0, buffer.Length - TAG_LENGTH);
-
             blockCipher.Init(false, new AeadParameters(new KeyParameter(key), 128, nonce));
 
             byte[] decryptedMessage = new byte[blockCipher.GetOutputSize(buffer.Length)];
 
-            int decryptedMessageLength = blockCipher.ProcessBytes(encryptedData, 0, encryptedData.Length, decryptedMessage, 0);
-            decryptedMessageLength += blockCipher.ProcessBytes(tag, 0, tag.Length, decryptedMessage, decryptedMessageLength);
+            int decryptedMessageLength = blockCipher.ProcessBytes(buffer, 0, buffer.Length, decryptedMessage, 0);
 
             decryptedMessageLength += blockCipher.DoFinal(decryptedMessage, decryptedMessageLength);
 
@@ -257,6 +249,26 @@ namespace Firebase.Cloud.Messaging
             ECPrivateKeyParameters ecPri = (ECPrivateKeyParameters)eckp.Private;
 
             return (ecPri, ecPub);
+        }
+
+        public static CryptoSettings GenerateCryptoSettings()
+        {
+            ECKeyPairGenerator gen = new ECKeyPairGenerator("ECDH");
+            gen.Init(eckgparameters);
+            AsymmetricCipherKeyPair eckp = gen.GenerateKeyPair();
+
+            ECPublicKeyParameters ecPub = (ECPublicKeyParameters)eckp.Public;
+            ECPrivateKeyParameters ecPri = (ECPrivateKeyParameters)eckp.Private;
+
+            var authSecret = new byte[16];
+            secureRandom.NextBytes(authSecret);
+
+            return new CryptoSettings
+            {
+                PublicKey = ecPub.Q.GetEncoded(),
+                PrivateKey = ecPri.D.ToByteArrayUnsigned(),
+                AuthSecret = authSecret,
+            };
         }
 
         private class HKDF

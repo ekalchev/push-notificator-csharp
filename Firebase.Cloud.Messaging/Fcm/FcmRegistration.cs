@@ -7,7 +7,7 @@ using System.Threading.Tasks;
 
 namespace Firebase.Cloud.Messaging.Fcm
 {
-    class FcmRegistration
+    public class FcmRegistration
     {
         public FcmRegistration(string token, string pushSet)
         {

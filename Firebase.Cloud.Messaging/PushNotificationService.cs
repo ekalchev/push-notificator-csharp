@@ -27,22 +27,17 @@ namespace Firebase.Cloud.Messaging
     {
         private GcmRegistration gcmRegistration;
         private FcmRegistration fcmRegistration;
-        private HashSet<string> persistentIds = new HashSet<string>();
+        private HashSet<string> persistentIds;
         private Decryptor cryptography;
 
         public event EventHandler<string> MessageReceived;
 
-        public async Task<string> Register(string senderId)
+        public PushNotificationService(PushSettings pushSettings)
         {
-            string appId = "wp:receiver.push.com#" + Guid.NewGuid().ToString();
-            cryptography = new Decryptor();
-
-            GcmClient gcmClient = new GcmClient();
-            FcmClient fcmClient = new FcmClient();
-            gcmRegistration = await gcmClient.Register(appId);
-            fcmRegistration = await fcmClient.Register(senderId, gcmRegistration.Token, cryptography.PublicKey, cryptography.AuthSecret);
-
-            return fcmRegistration.Token;
+            cryptography = new Decryptor(pushSettings.CryptoSettings);
+            gcmRegistration = pushSettings.GcmRegistration;
+            fcmRegistration = pushSettings.FcmRegistration;
+            persistentIds = pushSettings.PersistentIds;
         }
 
         public async Task Run(CancellationToken cancellationToken)
@@ -90,9 +85,8 @@ namespace Firebase.Cloud.Messaging
 
         private void OnDataMessage(DataMessageStanza dataMessageStanza)
         {
-            if(persistentIds.Contains(dataMessageStanza.PersistentId) == false)
+            if(persistentIds.Add(dataMessageStanza.PersistentId))
             {
-                persistentIds.Add(dataMessageStanza.PersistentId);
                 DecriptData(dataMessageStanza);
             }
         }
