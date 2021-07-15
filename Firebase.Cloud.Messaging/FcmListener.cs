@@ -264,12 +264,12 @@ namespace Firebase.Cloud.Messaging
                 if (messageTag == MessageTag.kDataMessageStanzaTag)
                 {
                     stream.Position = 0;
-                    if (messageSize > stream.UnreadBytesCount())
+                    if (messageSize + 3 > stream.UnreadBytesCount())
                     {
                         return;
                     }
-                    var buff = new byte[messageSize];
-                    stream.Read(buff, 0, (int)messageSize);
+                    var buff = new byte[messageSize + 3];
+                    stream.Read(buff, 0, (int)messageSize + 3);
                     message.MergeFrom(buff);
                 }
                 else
