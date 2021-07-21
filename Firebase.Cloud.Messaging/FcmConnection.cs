@@ -32,7 +32,7 @@ namespace Firebase.Cloud.Messaging
             client.Client.SetSocketOption(SocketOptionLevel.Tcp, SocketOptionName.TcpKeepAliveTime, 60);
 
             sslStream = new SslStream(client.GetStream(), false, new RemoteCertificateValidationCallback(ValidateServerCertificate), null);
-            await sslStream.AuthenticateAsClientAsync(host, null, SslProtocols.Tls13, false).ConfigureAwait(false);
+            await sslStream.AuthenticateAsClientAsync(host, null, SslProtocols.Tls13 | SslProtocols.Tls12, false).ConfigureAwait(false);
         }
 
         public async Task SendAsync(byte[] data, CancellationToken cancellationToken)
