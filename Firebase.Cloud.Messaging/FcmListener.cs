@@ -316,7 +316,8 @@ namespace Firebase.Cloud.Messaging
                 byte[] unreadBytes = new byte[unreadBytesCount];
 
                 dataStream.Read(unreadBytes, 0, unreadBytes.Length);
-                dataStream = new MemoryStream(unreadBytes);
+                dataStream = new MemoryStream(unreadBytes.Length);
+                dataStream.Write(unreadBytes, 0, unreadBytes.Length);
             }
             else
             {
