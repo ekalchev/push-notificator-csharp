@@ -68,7 +68,7 @@ namespace Firebase.Cloud.Messaging
                     }
 
                     // it seems that if the underlying socket is disconnected no exception is thrown
-                    if (client.Connected == false)
+                    if (!client.Connected || bytesRead == 0)
                     {
                         throw new SocketException(1);
                     }
